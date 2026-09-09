@@ -7,8 +7,11 @@ server and a **Discord** server:
   posted under the original author's name and avatar (via webhooks). Edits and
   deletes follow. Attachments are carried as links.
 - **Voice bridge** — when someone joins a paired voice channel on either side,
-  the bot joins both and relays audio between them, so people in the two apps
-  can talk.
+  a bot joins both and relays audio between them. Run more than one Discord bot
+  token and concurrent voice channels each get their own bridge.
+- **Presence announcements** — an optional channel gets "X joined / left voice
+  #channel · Fluxer/Discord" lines, plus a note when the voice bridge picks a
+  channel up.
 
 Channels are paired automatically when they share a name on both sides
 (case / spacing / emoji-insensitive); odd pairs go in `CHANNEL_OVERRIDES`.
@@ -27,9 +30,14 @@ and deletes find their copy.
 **Voice.** Fluxer voice is LiveKit; the bridge joins with `@livekit/rtc-node`,
 subscribes to every other participant, and mixes them. Discord voice uses
 `@discordjs/voice`; the bridge decodes each speaker and mixes them. The two
-mixes are piped to each other. A Discord bot can only sit in one voice channel
-per server, so the bridge follows whichever paired channel fills up first and
-releases it when both sides go quiet.
+mixes are piped to each other.
+
+A Discord bot can only sit in one voice channel per server, but the Fluxer bot
+can hold many at once — so the voice pool is `N` Discord tokens (`DISCORD_BOT_TOKENS`)
+plus the single Fluxer bot. Each paired voice channel that fills up claims a free
+Discord bot; when all bots are busy, an extra active channel is announced but not
+bridged until one frees up. A channel is released when both sides are empty for
+`VOICE_IDLE_LEAVE_MS`.
 
 > One person joining the **same** conversation on both apps at once will hear
 > themselves — the bridge can't tell it's the same human. Pick one app per call.
@@ -50,7 +58,7 @@ Manage Webhooks, Connect, Speak, Use Voice Activity**:
 <origin>/api/v1/oauth2/authorize?client_id=<APP_ID>&scope=bot&permissions=573688832&guild_id=<GUILD_ID>
 ```
 
-### Discord bot
+### Discord bot(s)
 
 Create an application at <https://discord.com/developers>, add a bot, and
 **enable the Message Content Intent**. Invite it with the same permissions:
@@ -58,6 +66,10 @@ Create an application at <https://discord.com/developers>, add a bot, and
 ```
 https://discord.com/oauth2/authorize?client_id=<APP_ID>&scope=bot&permissions=573688832
 ```
+
+For concurrent voice channels, repeat for a second (third, …) application and
+put every token in `DISCORD_BOT_TOKENS` (comma-separated). The first one runs
+the text bridge; the rest are voice workers.
 
 ### Config + start
 
@@ -84,11 +96,13 @@ src/
     voice.js             LiveKit connect / publish / subscribe + mix
   discord/
     index.js             discord.js client + webhook helpers
+    pool.js              N bot connections; the voice worker pool
     voice.js             @discordjs/voice join / play / receive
   bridge/
     channelMap.js         name-match text + voice channels
     text.js               two-way message / edit / delete sync
-    voice.js              one-active-pair voice orchestrator
+    voice.js              pool-aware voice orchestrator
+    announce.js           voice join/leave + bridge-status lines
     idMap.js              bounded bidirectional message-id map
 ```
 

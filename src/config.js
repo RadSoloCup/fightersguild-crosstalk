@@ -18,6 +18,12 @@ function parseOverrides(raw) {
 
 const fluxerOrigin = required('FLUXER_ORIGIN').replace(/\/$/, '')
 
+// One or more Discord bot tokens. The first runs the text bridge + announcements;
+// the rest are a voice pool so concurrent voice channels can each get a bridge.
+const discordTokens = (env.DISCORD_BOT_TOKENS || env.DISCORD_BOT_TOKEN || '')
+  .split(',').map(s => s.trim()).filter(Boolean)
+if (!discordTokens.length) throw new Error('Missing DISCORD_BOT_TOKENS (or DISCORD_BOT_TOKEN)')
+
 export const config = {
   fluxer: {
     origin: fluxerOrigin,
@@ -29,7 +35,8 @@ export const config = {
   },
 
   discord: {
-    botToken: required('DISCORD_BOT_TOKEN'),
+    botTokens: discordTokens,
+    botToken: discordTokens[0],
     guildId: required('DISCORD_GUILD_ID'),
   },
 
@@ -52,6 +59,14 @@ export const config = {
     // Bot user ids (either side) that shouldn't count as "someone in the
     // channel" — e.g. the DJ / SC-tools bots. Comma-separated.
     voiceIgnore: String(env.VOICE_IGNORE_IDS || '').split(',').map(s => s.trim()).filter(Boolean),
+
+    // Post "X joined / left voice #channel" lines. ANNOUNCE_CHANNEL is a
+    // channel name resolved on each side; ANNOUNCE_TO picks where they go.
+    announceChannel: (env.ANNOUNCE_CHANNEL || '').trim(),
+    announceTo: ['both', 'fluxer', 'discord'].includes(env.ANNOUNCE_TO) ? env.ANNOUNCE_TO : 'both',
+    announceJoins: env.ANNOUNCE_JOINS !== 'false',
+    announceLeaves: env.ANNOUNCE_LEAVES !== 'false',
+    announceBridge: env.ANNOUNCE_BRIDGE !== 'false', // "bridge now covering #x"
   },
 
   userAgent: env.USER_AGENT || 'fightersguild-crosstalk (+https://github.com/RadSoloCup/fightersguild-crosstalk)',

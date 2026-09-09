@@ -2,20 +2,21 @@ import { config } from './config.js'
 import { logger } from './log.js'
 import { FluxerGateway } from './fluxer/gateway.js'
 import { fluxerRest } from './fluxer/rest.js'
-import { createDiscord, loginDiscord } from './discord/index.js'
+import { DiscordPool } from './discord/pool.js'
 import { buildChannelMap } from './bridge/channelMap.js'
 import { TextBridge } from './bridge/text.js'
 import { VoiceBridge } from './bridge/voice.js'
+import { Announcer } from './bridge/announce.js'
 
 const log = logger('main')
 
 async function main() {
   log.info('fightersguild-crosstalk starting')
 
-  // ── Discord ──
-  const discord = createDiscord()
-  const discordGuild = await loginDiscord(discord)
-  if (!discordGuild) throw new Error(`Discord guild ${config.discord.guildId} not found (is the bot in it?)`)
+  // ── Discord (pool) ──
+  const pool = new DiscordPool()
+  await pool.init()
+  const primary = pool.primary
 
   // ── Fluxer gateway ──
   const fluxerGw = new FluxerGateway()
@@ -26,16 +27,22 @@ async function main() {
   await fluxerGw.start()
   await ready
 
-  // ── Channel map ──
   const me = await fluxerRest.me().catch(() => null)
   log.info(`Fluxer bot: ${me?.username ?? '?'} (${fluxerGw.botUserId})`)
   const fluxerChannels = await fluxerRest.guildChannels()
-  const { text, voice } = buildChannelMap(fluxerChannels, discordGuild)
+  const { text, voice } = buildChannelMap(fluxerChannels, primary.guild)
+
+  // ── Announcements ──
+  const announcer = new Announcer({
+    fluxerGw, primaryClient: primary.client, primaryGuild: primary.guild, fluxerChannels,
+  })
+  announcer.start()
 
   // ── Text bridge ──
   if (text.length) {
-    const tb = new TextBridge({ fluxerGw, discord, discordGuild, pairs: text })
-    await tb.init()
+    await new TextBridge({
+      fluxerGw, discord: primary.client, discordGuild: primary.guild, pairs: text,
+    }).init()
   } else {
     log.warn('no matching text channels — text bridge not started')
   }
@@ -43,7 +50,7 @@ async function main() {
   // ── Voice bridge ──
   let vb = null
   if (config.bridge.voice && voice.length) {
-    vb = new VoiceBridge({ fluxerGw, discord, discordGuild, pairs: voice })
+    vb = new VoiceBridge({ fluxerGw, pool, announcer, pairs: voice })
     vb.start()
   } else {
     log.info('voice bridge disabled or no matching voice channels')
@@ -55,7 +62,7 @@ async function main() {
     log.info('shutting down')
     try { await vb?.stop() } catch {}
     try { fluxerGw.stop() } catch {}
-    try { await discord.destroy() } catch {}
+    try { await pool.destroy() } catch {}
     process.exit(0)
   }
   process.on('SIGINT', shutdown)

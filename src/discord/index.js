@@ -4,32 +4,36 @@ import { logger } from '../log.js'
 
 const log = logger('discord')
 
-export function createDiscord() {
+const PRIMARY_INTENTS = [
+  GatewayIntentBits.Guilds,
+  GatewayIntentBits.GuildMessages,
+  GatewayIntentBits.MessageContent,
+  GatewayIntentBits.GuildVoiceStates,
+]
+// Voice-pool workers only need to see channels + voice state.
+const WORKER_INTENTS = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates]
+
+export function createDiscord({ worker = false } = {}) {
   const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-      GatewayIntentBits.GuildVoiceStates,
-    ],
+    intents: worker ? WORKER_INTENTS : PRIMARY_INTENTS,
     partials: [Partials.Channel, Partials.Message],
     allowedMentions: { parse: [] },
   })
-
   client.on('error', e => log.warn(`client error: ${e.message}`))
   client.on('shardDisconnect', () => log.warn('shard disconnected'))
   client.on('shardResume', () => log.info('shard resumed'))
-
   return client
 }
 
-export async function loginDiscord(client) {
+// Log a client in and resolve its guild object.
+export async function loginDiscord(client, token) {
   const ready = new Promise(res => client.once('clientReady', () => res()))
-  await client.login(config.discord.botToken)
+  await client.login(token)
   await ready
-  log.info(`ready as ${client.user.tag} (${client.user.id})`)
-  return client.guilds.cache.get(config.discord.guildId)
+  const guild = client.guilds.cache.get(config.discord.guildId)
     ?? await client.guilds.fetch(config.discord.guildId)
+  log.info(`ready as ${client.user.tag} (${client.user.id})${guild ? '' : ' — NOT in the target guild!'}`)
+  return guild
 }
 
 // Reuse or create a webhook the bridge owns on a Discord text channel.

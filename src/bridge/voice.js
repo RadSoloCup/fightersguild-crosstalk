@@ -4,20 +4,22 @@ import { DiscordVoice } from '../discord/voice.js'
 import { logger } from '../log.js'
 
 const log = logger('voice')
-const FRAME_BYTES = 960 * 2 * 2 // 20ms, stereo, s16  (1920 samples * 2 bytes)
+const FRAME_SAMPLES = 960 * 2      // 20ms stereo
+const FRAME_BYTES = FRAME_SAMPLES * 2
 
-// Orchestrates the one active voice pair. A Discord bot can only sit in one
-// voice channel per guild, so the bridge follows whichever paired channel has
-// people in it first.
+// Orchestrates voice bridges across a pool of Discord bots. Each bot can hold
+// one Discord voice channel; the shared Fluxer bot can hold many LiveKit rooms
+// at once. So N Discord tokens => up to N paired voice channels bridged
+// simultaneously — the bridge follows whichever pairs have people in them.
 export class VoiceBridge {
-  constructor({ fluxerGw, discord, discordGuild, pairs }) {
+  constructor({ fluxerGw, pool, announcer, pairs }) {
     this.fluxerGw = fluxerGw
-    this.discord = discord
-    this.discordGuild = discordGuild
+    this.pool = pool
+    this.announcer = announcer
     this.pairs = pairs
-    this.ignore = new Set([...config.bridge.voiceIgnore, fluxerGw.botUserId, discord.user.id].filter(Boolean))
-
-    this.active = null          // { pair, fl, dc, clock, pending, idleTimer }
+    this.ignore = new Set([...config.bridge.voiceIgnore, fluxerGw.botUserId, ...pool.botIds].filter(Boolean))
+    this.active = new Map()   // fluxerChannelId -> session
+    this._activating = new Set()
     this._evalTimer = null
   }
 
@@ -25,58 +27,58 @@ export class VoiceBridge {
     if (!this.pairs.length) { log.info('no voice pairs — voice bridge idle'); return }
     const kick = () => this._evaluate().catch(e => log.warn(`evaluate: ${e.message}`))
     this.fluxerGw.on('voiceStateUpdate', kick)
-    this.discord.on('voiceStateUpdate', kick)
+    for (const s of this.pool.slots) s.client.on('voiceStateUpdate', kick)
     this._evalTimer = setInterval(kick, 10_000)
-    log.info(`voice bridge watching ${this.pairs.length} pair(s)`)
+    log.info(`voice bridge watching ${this.pairs.length} pair(s) with ${this.pool.slots.length} bot(s)`)
     kick()
   }
 
   _humans(pair) {
     const fl = this.fluxerGw.usersInVoice(pair.fluxerId).filter(id => !this.ignore.has(id))
-    const dcCh = this.discordGuild.channels.cache.get(pair.discordId)
+    const dcCh = this.pool.primary.guild.channels.cache.get(pair.discordId)
     const dc = dcCh ? [...dcCh.members.values()].filter(m => !m.user.bot && !this.ignore.has(m.id)) : []
-    return { fl: fl.length, dc: dc.length, total: fl.length + dc.length }
+    return fl.length + dc.length
   }
 
   async _evaluate() {
-    // Is the active pair still populated?
-    if (this.active) {
-      const n = this._humans(this.active.pair)
-      if (n.total === 0) {
-        if (!this.active.idleTimer) {
-          this.active.idleTimer = setTimeout(() => this._teardown().catch(() => {}), config.bridge.voiceIdleLeaveMs)
-        }
-      } else if (this.active.idleTimer) {
-        clearTimeout(this.active.idleTimer)
-        this.active.idleTimer = null
+    // 1. idle-check active sessions
+    for (const session of this.active.values()) {
+      const n = this._humans(session.pair)
+      if (n === 0 && !session.idleTimer) {
+        session.idleTimer = setTimeout(() => this._teardown(session.pair.fluxerId).catch(() => {}), config.bridge.voiceIdleLeaveMs)
+      } else if (n > 0 && session.idleTimer) {
+        clearTimeout(session.idleTimer); session.idleTimer = null
       }
-      return
     }
 
-    // Idle — find a pair with someone in it and bring the bridge up there.
+    // 2. bring up any pair that has people and isn't bridged yet
     for (const pair of this.pairs) {
-      if (this._humans(pair).total > 0) {
-        await this._activate(pair)
-        return
-      }
+      if (this.active.has(pair.fluxerId) || this._activating.has(pair.fluxerId)) continue
+      if (this._humans(pair) === 0) continue
+      const slot = this.pool.acquire(pair)
+      if (!slot) { this.announcer?.bridgeBusy(pair, this.pool.slots.length); log.warn(`all ${this.pool.slots.length} bot(s) busy — cannot bridge #${pair.name}`); continue }
+      await this._activate(pair, slot)
     }
   }
 
-  async _activate(pair) {
-    if (this.active) return
-    log.info(`activating voice bridge on "${pair.name}"`)
-    const flCh = { guildId: config.fluxer.guildId, channelId: pair.fluxerId }
-    const fl = new FluxerVoice(this.fluxerGw, flCh)
-    const dcCh = await this.discordGuild.channels.fetch(pair.discordId)
-    const dc = new DiscordVoice(dcCh)
-
-    const state = { pair, fl, dc, clock: null, pending: new Map(), idleTimer: null }
-    this.active = state
+  async _activate(pair, slot) {
+    this._activating.add(pair.fluxerId)
+    log.info(`activating voice bridge on "${pair.name}" (bot ${slot.client.user.tag})`)
+    const fl = new FluxerVoice(this.fluxerGw, { guildId: config.fluxer.guildId, channelId: pair.fluxerId })
+    let dcChannel
+    try {
+      dcChannel = await slot.guild.channels.fetch(pair.discordId)
+    } catch (e) {
+      log.error(`fetch discord channel #${pair.name}: ${e.message}`)
+      this.pool.release(slot); this._activating.delete(pair.fluxerId); return
+    }
+    const dc = new DiscordVoice(dcChannel)
+    const session = { pair, slot, fl, dc, clock: null, pending: new Map(), idleTimer: null }
 
     const bail = where => async () => {
-      if (this.active !== state) return
-      log.warn(`voice: ${where} closed — tearing down`)
-      await this._teardown()
+      if (this.active.get(pair.fluxerId) !== session) return
+      log.warn(`voice: ${where} side closed on #${pair.name} — tearing down`)
+      await this._teardown(pair.fluxerId)
     }
     fl.on('closed', bail('fluxer'))
     dc.on('closed', bail('discord'))
@@ -85,61 +87,61 @@ export class VoiceBridge {
       await fl.connect()
       await dc.join()
     } catch (e) {
-      log.error(`voice activate failed: ${e.message}`)
-      await this._teardown()
-      return
+      log.error(`voice activate #${pair.name} failed: ${e.message}`)
+      try { await dc.destroy() } catch {}
+      try { await fl.destroy() } catch {}
+      this.pool.release(slot); this._activating.delete(pair.fluxerId); return
     }
 
-    // Fluxer mixed audio -> Discord
+    // Fluxer mix -> Discord
     fl.on('frame', frame => {
-      try {
-        const buf = Buffer.from(frame.data.buffer, frame.data.byteOffset, frame.data.byteLength)
-        dc.writeOut(buf)
-      } catch {}
+      try { session.dc.writeOut(Buffer.from(frame.data.buffer, frame.data.byteOffset, frame.data.byteLength)) } catch {}
     })
-
-    // Discord per-user audio -> accumulate, then a 20ms clock mixes -> Fluxer
+    // Discord per-user -> accumulate; 20ms clock mixes -> Fluxer
     dc.on('pcm', ({ userId, chunk }) => {
-      const prev = state.pending.get(userId)
-      state.pending.set(userId, prev ? Buffer.concat([prev, chunk]) : chunk)
+      const prev = session.pending.get(userId)
+      session.pending.set(userId, prev ? Buffer.concat([prev, chunk]) : chunk)
     })
-    state.clock = setInterval(() => {
-      const mix = new Int16Array(FRAME_BYTES / 2)
+    session.clock = setInterval(() => {
+      const mix = new Int16Array(FRAME_SAMPLES)
       let any = false
-      for (const [uid, buf] of state.pending) {
+      for (const [uid, buf] of session.pending) {
         if (buf.length < FRAME_BYTES) continue
         any = true
-        const view = new Int16Array(buf.buffer, buf.byteOffset, FRAME_BYTES / 2)
+        const view = new Int16Array(buf.buffer, buf.byteOffset, FRAME_SAMPLES)
         for (let i = 0; i < mix.length; i++) {
-          let v = mix[i] + view[i]
+          const v = mix[i] + view[i]
           mix[i] = v > 32767 ? 32767 : v < -32768 ? -32768 : v
         }
         const rest = buf.subarray(FRAME_BYTES)
-        if (rest.length) state.pending.set(uid, Buffer.from(rest))
-        else state.pending.delete(uid)
+        if (rest.length) session.pending.set(uid, Buffer.from(rest))
+        else session.pending.delete(uid)
       }
-      if (any) fl.pushFrame(mix)
+      if (any) session.fl.pushFrame(mix)
     }, 20)
 
+    this.active.set(pair.fluxerId, session)
+    this._activating.delete(pair.fluxerId)
+    this.announcer?.bridgeUp(pair)
     log.info(`voice bridge up on "${pair.name}"`)
-    this._evaluate().catch(() => {})
   }
 
-  async _teardown() {
-    const state = this.active
-    if (!state) return
-    this.active = null
-    if (state.idleTimer) clearTimeout(state.idleTimer)
-    if (state.clock) clearInterval(state.clock)
-    try { await state.dc.destroy() } catch {}
-    try { await state.fl.destroy() } catch {}
-    log.info(`voice bridge left "${state.pair.name}"`)
-    // Someone may already be waiting in another pair.
+  async _teardown(fluxerChannelId) {
+    const session = this.active.get(fluxerChannelId)
+    if (!session) return
+    this.active.delete(fluxerChannelId)
+    if (session.idleTimer) clearTimeout(session.idleTimer)
+    if (session.clock) clearInterval(session.clock)
+    try { await session.dc.destroy() } catch {}
+    try { await session.fl.destroy() } catch {}
+    this.pool.release(session.slot)
+    this.announcer?.bridgeDown(session.pair)
+    log.info(`voice bridge left "${session.pair.name}"`)
     setTimeout(() => this._evaluate().catch(() => {}), 1000)
   }
 
   async stop() {
     if (this._evalTimer) clearInterval(this._evalTimer)
-    await this._teardown()
+    for (const id of [...this.active.keys()]) await this._teardown(id)
   }
 }
