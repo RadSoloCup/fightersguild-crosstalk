@@ -1,0 +1,10 @@
+# Fighters Guild crosstalk — Fluxer <-> Discord bridge.
+# host networking so the LiveKit voice path works the same way the DJ bot's
+# does (reach the playit-advertised voice endpoint without container hairpin).
+services:
+  crosstalk:
+    build: https://github.com/RadSoloCup/fightersguild-crosstalk.git#main
+    container_name: fightersguild-crosstalk
+    restart: unless-stopped
+    network_mode: host
+    env_file: ./crosstalk.env
