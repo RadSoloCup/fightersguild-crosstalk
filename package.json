@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Two-way bridge between a self-hosted Fluxer server and a Discord server — text channel sync and a live voice bridge.",
+  "description": "Two-way bridge between a self-hosted Fluxer server and a Discord server: text channel sync and a live voice bridge.",
   "license": "AGPL-3.0-or-later",
   "engines": { "node": ">=22" },
   "scripts": {

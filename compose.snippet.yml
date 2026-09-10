@@ -1,4 +1,4 @@
-# Fighters Guild crosstalk — Fluxer <-> Discord bridge.
+# Fighters Guild crosstalk, Fluxer to Discord bridge.
 # host networking so the LiveKit voice path works the same way the DJ bot's
 # does (reach the playit-advertised voice endpoint without container hairpin).
 services:
