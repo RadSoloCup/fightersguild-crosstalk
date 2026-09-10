@@ -13,8 +13,8 @@ const CH = 2
 const SAMPLES = (RATE * 20) / 1000 // 960 per channel per 20ms
 
 // A live connection to one Fluxer (LiveKit) voice channel.
-//  - .source     an AudioSource — push Discord audio into Fluxer with pushFrame()
-//  - emits 'frame' (AudioFrame) — mixed audio of every *other* participant
+//  - .source     an AudioSource, push Discord audio into Fluxer with pushFrame()
+//  - emits 'frame' (AudioFrame), mixed audio of every *other* participant
 export class FluxerVoice extends EventEmitter {
   constructor(gateway, { guildId, channelId }) {
     super()
@@ -54,7 +54,7 @@ export class FluxerVoice extends EventEmitter {
 
     this.mixer = new AudioMixer(RATE, CH, { blocksize: SAMPLES })
     this._startPump()
-    log.info('connected — track published, mixing remote audio')
+    log.info('connected, track published, mixing remote audio')
   }
 
   // Feed one 20ms stereo s16 frame (Int16Array of 1920) toward Fluxer.

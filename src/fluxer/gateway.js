@@ -67,7 +67,7 @@ export class FluxerGateway extends EventEmitter {
       this.connected = false
       if (this.closed) return
       const fatal = [4004, 4010, 4011, 4012, 4013, 4014].includes(ev.code)
-      log.warn(`socket closed ${ev.code} ${ev.reason || ''}${fatal ? ' — FATAL' : ''}`)
+      log.warn(`socket closed ${ev.code} ${ev.reason || ''}${fatal ? ', FATAL' : ''}`)
       if (fatal) return void this.emit('fatal', ev.code)
       const delay = Math.min(this.reconnectDelay, 30_000)
       this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30_000)

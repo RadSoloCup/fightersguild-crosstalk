@@ -17,9 +17,10 @@ Part of the Fighters Guild toolset alongside the
   posted under the original author's name and avatar through a webhook, so it
   reads as the real person, not a bot. Edits and deletes follow. Attachments are
   carried as links.
-- **Voice bridge.** When someone joins a paired voice channel on either side, a
-  bot joins both and relays mixed audio between them. Run more than one Discord
-  bot token and concurrent voice channels each get their own bridge.
+- **Voice bridge.** A bot joins both sides of a paired voice channel and relays
+  mixed audio, but only while there is a real person on **both** sides (nobody
+  wants to be bridged into an empty room). Run more than one Discord bot token
+  and concurrent voice channels each get their own bridge.
 - **Presence announcements.** An optional channel gets lines like "Alice joined
   #operations, Fluxer" and "Bob left voice, Discord", plus a note when the voice
   bridge picks a channel up or lets it go.
@@ -50,10 +51,12 @@ them. The two mixes are piped to each other, at 48 kHz both ways.
 
 A Discord bot can only sit in one voice channel per server, but one Fluxer bot
 can hold several LiveKit rooms at once. So the voice pool is N Discord tokens
-(`DISCORD_BOT_TOKENS`) plus the single Fluxer bot. Each paired voice channel that
-fills up claims a free Discord bot. When every bot is busy an extra active
-channel is announced but not bridged until one frees up. A channel is released
-when both sides have been empty for `VOICE_IDLE_LEAVE_MS`.
+(`DISCORD_BOT_TOKENS`) plus the single Fluxer bot. A paired voice channel claims
+a free Discord bot once it has someone on both sides. When every bot is busy an
+extra active channel is announced but not bridged until one frees up. A channel
+is released when it has been idle (one side empty by default) for
+`VOICE_IDLE_LEAVE_MS`. Set `VOICE_REQUIRE_BOTH=false` to bridge as soon as
+either side has someone.
 
 > If one person is in the same call on both apps at once they will hear
 > themselves, because the bridge cannot tell it is the same human. Use one app

@@ -1,5 +1,5 @@
 // Bounded bidirectional message-id map, so edits and deletes can follow a
-// bridged message to its copy on the other side. In-memory only — a restart
+// bridged message to its copy on the other side. In-memory only, a restart
 // forgets history, which just means very old messages stop syncing edits.
 export class IdMap {
   constructor(max = 5000) {

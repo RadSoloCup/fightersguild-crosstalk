@@ -32,7 +32,7 @@ export async function loginDiscord(client, token) {
   await ready
   const guild = client.guilds.cache.get(config.discord.guildId)
     ?? await client.guilds.fetch(config.discord.guildId)
-  log.info(`ready as ${client.user.tag} (${client.user.id})${guild ? '' : ' — NOT in the target guild!'}`)
+  log.info(`ready as ${client.user.tag} (${client.user.id})${guild ? '' : ', NOT in the target guild!'}`)
   return guild
 }
 

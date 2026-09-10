@@ -44,7 +44,7 @@ async function main() {
       fluxerGw, discord: primary.client, discordGuild: primary.guild, pairs: text,
     }).init()
   } else {
-    log.warn('no matching text channels — text bridge not started')
+    log.warn('no matching text channels, text bridge not started')
   }
 
   // ── Voice bridge ──

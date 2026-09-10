@@ -38,17 +38,17 @@ export function buildChannelMap(fluxerChannels, discordGuild) {
       const fl = flMap.get(normaliseName(ov.fluxer))
       const dc = dcMap.get(normaliseName(ov.discord)) ?? dcMap.get(ov.discord)
       if (fl && dc) { pairs.push({ name: fl.name, fluxerId: fl.id, discordId: dc.id }); seen.add(normaliseName(fl.name)) }
-      else log.warn(`${kind} override "${ov.fluxer}" <-> "${ov.discord}" — one side not found`)
+      else log.warn(`${kind} override "${ov.fluxer}" <-> "${ov.discord}", one side not found`)
     }
 
     for (const [key, fl] of flMap) {
       if (seen.has(key) || exclude.has(key)) continue
       const dc = dcMap.get(key)
       if (dc) { pairs.push({ name: fl.name, fluxerId: fl.id, discordId: dc.id }); seen.add(key) }
-      else log.info(`${kind} "${fl.name}" has no Discord match — not bridged`)
+      else log.info(`${kind} "${fl.name}" has no Discord match, not bridged`)
     }
     for (const [key, dc] of dcMap) {
-      if (!seen.has(key) && !exclude.has(key)) log.info(`${kind} "${dc.name}" has no Fluxer match — not bridged`)
+      if (!seen.has(key) && !exclude.has(key)) log.info(`${kind} "${dc.name}" has no Fluxer match, not bridged`)
     }
     return pairs
   }

@@ -52,12 +52,15 @@ export const config = {
     // Prefix the webhook display name so bridged users are visibly remote.
     tagFluxer: env.TAG_FLUXER ?? '',            // e.g. " (Fluxer)"
     tagDiscord: env.TAG_DISCORD ?? '',          // e.g. " (Discord)"
-    // Voice bridge on/off, and how long a voice channel must be empty on both
-    // sides before the bridge leaves.
+    // Voice bridge on/off, and how long a voice channel must be idle before the
+    // bridge leaves.
     voice: env.VOICE_BRIDGE !== 'false',
     voiceIdleLeaveMs: Number(env.VOICE_IDLE_LEAVE_MS || 20_000),
+    // Only bridge a voice channel while there is at least one real person on
+    // BOTH sides. Set false to bridge as soon as either side has someone.
+    voiceRequireBoth: env.VOICE_REQUIRE_BOTH !== 'false',
     // Bot user ids (either side) that shouldn't count as "someone in the
-    // channel" — e.g. the DJ / SC-tools bots. Comma-separated.
+    // channel", e.g. the DJ / SC-tools bots. Comma-separated.
     voiceIgnore: String(env.VOICE_IGNORE_IDS || '').split(',').map(s => s.trim()).filter(Boolean),
 
     // Post "X joined / left voice #channel" lines. ANNOUNCE_CHANNEL is a

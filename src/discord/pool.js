@@ -6,7 +6,7 @@ const log = logger('pool')
 
 // A pool of Discord bot connections. The first is the "primary" (text bridge +
 // announcements); every connection, primary included, can also be borrowed as a
-// voice worker — a Discord bot can only be in one voice channel per guild, so N
+// voice worker, a Discord bot can only be in one voice channel per guild, so N
 // tokens means N concurrent voice bridges.
 export class DiscordPool {
   constructor() {
@@ -25,12 +25,12 @@ export class DiscordPool {
         log.error(`bot #${i} login failed: ${e.message}`)
         continue
       }
-      if (!guild) { log.error(`bot #${i} is not in guild ${config.discord.guildId} — skipped`); continue }
+      if (!guild) { log.error(`bot #${i} is not in guild ${config.discord.guildId}, skipped`); continue }
       this.slots.push({ client, guild, primary, busy: null })
     }
     if (!this.slots.length) throw new Error('no usable Discord bots')
     if (!this.slots[0].primary) throw new Error('primary Discord bot failed to start')
-    log.info(`pool ready: ${this.slots.length} bot(s) — ${this.slots.length - 1} extra voice worker(s)`)
+    log.info(`pool ready: ${this.slots.length} bot(s), ${this.slots.length - 1} extra voice worker(s)`)
   }
 
   get primary() { return this.slots[0] }

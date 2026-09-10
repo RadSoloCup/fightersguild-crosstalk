@@ -9,8 +9,9 @@ const FRAME_BYTES = FRAME_SAMPLES * 2
 
 // Orchestrates voice bridges across a pool of Discord bots. Each bot can hold
 // one Discord voice channel; the shared Fluxer bot can hold many LiveKit rooms
-// at once. So N Discord tokens => up to N paired voice channels bridged
-// simultaneously — the bridge follows whichever pairs have people in them.
+// at once. So N Discord tokens gives up to N paired voice channels bridged at
+// once. By default a pair is only bridged while someone is present on BOTH
+// sides (VOICE_REQUIRE_BOTH).
 export class VoiceBridge {
   constructor({ fluxerGw, pool, announcer, pairs }) {
     this.fluxerGw = fluxerGw
@@ -25,7 +26,7 @@ export class VoiceBridge {
   }
 
   start() {
-    if (!this.pairs.length) { log.info('no voice pairs — voice bridge idle'); return }
+    if (!this.pairs.length) { log.info('no voice pairs, voice bridge idle'); return }
     const kick = () => this._evaluate().catch(e => log.warn(`evaluate: ${e.message}`))
     this.fluxerGw.on('voiceStateUpdate', kick)
     for (const s of this.pool.slots) s.client.on('voiceStateUpdate', kick)
@@ -34,34 +35,40 @@ export class VoiceBridge {
     kick()
   }
 
+  // How many real people are in each side of a pair, and whether that's enough
+  // to warrant a bridge.
   _humans(pair) {
     const fl = this.fluxerGw.usersInVoice(pair.fluxerId).filter(id => !this.ignore.has(id))
     const dcCh = this.pool.primary.guild.channels.cache.get(pair.discordId)
     const dc = dcCh ? [...dcCh.members.values()].filter(m => !m.user.bot && !this.ignore.has(m.id)) : []
-    const total = fl.length + dc.length
-    if (total) log.debug(`#${pair.name}: fluxer[${fl.join(',')}] discord[${dc.map(m => m.user.username).join(',')}]`)
-    return total
+    const enough = config.bridge.voiceRequireBoth
+      ? (fl.length > 0 && dc.length > 0)
+      : (fl.length > 0 || dc.length > 0)
+    if (fl.length || dc.length) {
+      log.debug(`#${pair.name}: fluxer[${fl.join(',')}] discord[${dc.map(m => m.user.username).join(',')}] -> ${enough ? 'bridge' : 'wait'}`)
+    }
+    return { fl: fl.length, dc: dc.length, enough }
   }
 
   async _evaluate() {
     // 1. idle-check active sessions
     for (const session of this.active.values()) {
-      const n = this._humans(session.pair)
-      if (n === 0 && !session.idleTimer) {
+      const { enough } = this._humans(session.pair)
+      if (!enough && !session.idleTimer) {
         session.idleTimer = setTimeout(() => this._teardown(session.pair.fluxerId).catch(() => {}), config.bridge.voiceIdleLeaveMs)
-      } else if (n > 0 && session.idleTimer) {
+      } else if (enough && session.idleTimer) {
         clearTimeout(session.idleTimer); session.idleTimer = null
       }
     }
 
-    // 2. bring up any pair that has people and isn't bridged yet
+    // 2. bring up any pair that has people on both sides and isn't bridged yet
     const now = Date.now()
     for (const pair of this.pairs) {
       if (this.active.has(pair.fluxerId) || this._activating.has(pair.fluxerId)) continue
       if ((this._cooldown.get(pair.fluxerId) || 0) > now) continue
-      if (this._humans(pair) === 0) continue
+      if (!this._humans(pair).enough) continue
       const slot = this.pool.acquire(pair)
-      if (!slot) { this.announcer?.bridgeBusy(pair, this.pool.slots.length); log.warn(`all ${this.pool.slots.length} bot(s) busy — cannot bridge #${pair.name}`); continue }
+      if (!slot) { this.announcer?.bridgeBusy(pair, this.pool.slots.length); log.warn(`all ${this.pool.slots.length} bot(s) busy, cannot bridge #${pair.name}`); continue }
       await this._activate(pair, slot)
     }
   }
@@ -82,7 +89,7 @@ export class VoiceBridge {
 
     const bail = where => async () => {
       if (this.active.get(pair.fluxerId) !== session) return
-      log.warn(`voice: ${where} side closed on #${pair.name} — tearing down`)
+      log.warn(`voice: ${where} side closed on #${pair.name}, tearing down`)
       await this._teardown(pair.fluxerId)
     }
     fl.on('closed', bail('fluxer'))
@@ -92,7 +99,7 @@ export class VoiceBridge {
       await fl.connect()
       await dc.join()
     } catch (e) {
-      log.error(`voice activate #${pair.name} failed: ${e.message} — 60s cooldown`)
+      log.error(`voice activate #${pair.name} failed: ${e.message}, 60s cooldown`)
       try { await dc.destroy() } catch {}
       try { await fl.destroy() } catch {}
       this._cooldown.set(pair.fluxerId, Date.now() + 60_000)

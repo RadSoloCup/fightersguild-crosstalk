@@ -70,7 +70,7 @@ export class Announcer {
   }
 
   bridgeUp(pair) {
-    if (config.bridge.announceBridge) this._post(`🌉 Voice bridge now connecting **#${pair.name}** — Fluxer ⇄ Discord`)
+    if (config.bridge.announceBridge) this._post(`🌉 Voice bridge now connecting **#${pair.name}** between Fluxer and Discord`)
   }
   bridgeDown(pair) {
     if (config.bridge.announceBridge) this._post(`🌉 Voice bridge left **#${pair.name}**`)
