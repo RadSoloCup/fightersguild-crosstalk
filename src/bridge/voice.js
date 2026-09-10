@@ -20,6 +20,7 @@ export class VoiceBridge {
     this.ignore = new Set([...config.bridge.voiceIgnore, fluxerGw.botUserId, ...pool.botIds].filter(Boolean))
     this.active = new Map()   // fluxerChannelId -> session
     this._activating = new Set()
+    this._cooldown = new Map() // fluxerChannelId -> retry-not-before timestamp
     this._evalTimer = null
   }
 
@@ -52,8 +53,10 @@ export class VoiceBridge {
     }
 
     // 2. bring up any pair that has people and isn't bridged yet
+    const now = Date.now()
     for (const pair of this.pairs) {
       if (this.active.has(pair.fluxerId) || this._activating.has(pair.fluxerId)) continue
+      if ((this._cooldown.get(pair.fluxerId) || 0) > now) continue
       if (this._humans(pair) === 0) continue
       const slot = this.pool.acquire(pair)
       if (!slot) { this.announcer?.bridgeBusy(pair, this.pool.slots.length); log.warn(`all ${this.pool.slots.length} bot(s) busy — cannot bridge #${pair.name}`); continue }
@@ -87,11 +90,13 @@ export class VoiceBridge {
       await fl.connect()
       await dc.join()
     } catch (e) {
-      log.error(`voice activate #${pair.name} failed: ${e.message}`)
+      log.error(`voice activate #${pair.name} failed: ${e.message} — 60s cooldown`)
       try { await dc.destroy() } catch {}
       try { await fl.destroy() } catch {}
+      this._cooldown.set(pair.fluxerId, Date.now() + 60_000)
       this.pool.release(slot); this._activating.delete(pair.fluxerId); return
     }
+    this._cooldown.delete(pair.fluxerId)
 
     // Fluxer mix -> Discord
     fl.on('frame', frame => {
