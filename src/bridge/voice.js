@@ -38,7 +38,9 @@ export class VoiceBridge {
     const fl = this.fluxerGw.usersInVoice(pair.fluxerId).filter(id => !this.ignore.has(id))
     const dcCh = this.pool.primary.guild.channels.cache.get(pair.discordId)
     const dc = dcCh ? [...dcCh.members.values()].filter(m => !m.user.bot && !this.ignore.has(m.id)) : []
-    return fl.length + dc.length
+    const total = fl.length + dc.length
+    if (total) log.debug(`#${pair.name}: fluxer[${fl.join(',')}] discord[${dc.map(m => m.user.username).join(',')}]`)
+    return total
   }
 
   async _evaluate() {
