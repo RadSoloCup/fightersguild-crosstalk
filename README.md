@@ -143,3 +143,7 @@ Copyright &copy; 2026 Fighters Guild.
 GNU Affero General Public License v3.0 or later, see [LICENSE](LICENSE). If you
 run a modified copy as a network service, you must offer its users the source of
 your version.
+
+---
+
+Made in Canada 🇨🇦
