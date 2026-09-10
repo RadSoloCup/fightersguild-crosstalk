@@ -18,7 +18,11 @@ async function req(method, path, body, { auth = true } = {}) {
     signal: AbortSignal.timeout(20_000),
   })
   const text = await res.text()
-  if (!res.ok) throw new Error(`Fluxer ${method} ${path} -> ${res.status} ${text.slice(0, 300)}`)
+  if (!res.ok) {
+    // Never echo a webhook token (it lives in the path).
+    const safePath = path.replace(/(\/webhooks\/\d+\/)[^/?]+/, '$1REDACTED')
+    throw new Error(`Fluxer ${method} ${safePath} -> ${res.status} ${text.slice(0, 300)}`)
+  }
   return text ? JSON.parse(text) : null
 }
 
