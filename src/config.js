@@ -59,6 +59,14 @@ export const config = {
     // Only bridge a voice channel while there is at least one real person on
     // BOTH sides. Set false to bridge as soon as either side has someone.
     voiceRequireBoth: env.VOICE_REQUIRE_BOTH !== 'false',
+    // While a pair is bridged, post + keep updated a "who is here from Discord"
+    // message in the Fluxer voice channel's chat.
+    voiceShowDiscordHere: env.VOICE_SHOW_DISCORD_HERE !== 'false',
+    // Also put the Discord roster in the bot's Fluxer nickname (shows in the
+    // voice member list). Off by default: the bot also posts the announcements,
+    // and a name like "🎧 Alice, Bob" on those reads oddly. Only sensible with a
+    // single-pool bridge.
+    voiceRosterNick: env.VOICE_ROSTER_NICK === 'true',
     // Bot user ids (either side) that shouldn't count as "someone in the
     // channel", e.g. the DJ / SC-tools bots. Comma-separated.
     voiceIgnore: String(env.VOICE_IGNORE_IDS || '').split(',').map(s => s.trim()).filter(Boolean),

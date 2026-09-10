@@ -19,8 +19,10 @@ Part of the Fighters Guild toolset alongside the
   carried as links.
 - **Voice bridge.** A bot joins both sides of a paired voice channel and relays
   mixed audio, but only while there is a real person on **both** sides (nobody
-  wants to be bridged into an empty room). Run more than one Discord bot token
-  and concurrent voice channels each get their own bridge.
+  wants to be bridged into an empty room). While it is bridged, a live "who is
+  here from Discord" message is posted in the Fluxer voice channel's chat. Run
+  more than one Discord bot token and concurrent voice channels each get their
+  own bridge.
 - **Presence announcements.** An optional channel gets lines like "Alice joined
   #operations, Fluxer" and "Bob left voice, Discord", plus a note when the voice
   bridge picks a channel up or lets it go.

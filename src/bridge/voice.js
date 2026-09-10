@@ -1,11 +1,24 @@
 import { config } from '../config.js'
 import { FluxerVoice } from '../fluxer/voice.js'
 import { DiscordVoice } from '../discord/voice.js'
+import { fluxerRest } from '../fluxer/rest.js'
 import { logger } from '../log.js'
 
 const log = logger('voice')
 const FRAME_SAMPLES = 960 * 2      // 20ms stereo
 const FRAME_BYTES = FRAME_SAMPLES * 2
+
+// Fit a name list into a 32-char Fluxer nickname.
+function compactNick(names) {
+  if (!names.length) return ''
+  let out = '🎧 '
+  for (let i = 0; i < names.length; i++) {
+    const next = out + (i ? ', ' : '') + names[i]
+    if (next.length > 28) { out += ` +${names.length - i}`; return out.slice(0, 32) }
+    out = next
+  }
+  return out.slice(0, 32)
+}
 
 // Orchestrates voice bridges across a pool of Discord bots. Each bot can hold
 // one Discord voice channel; the shared Fluxer bot can hold many LiveKit rooms
@@ -50,8 +63,66 @@ export class VoiceBridge {
     return { fl: fl.length, dc: dc.length, enough }
   }
 
+  _discordRoster(pair) {
+    const ch = this.pool.primary.guild.channels.cache.get(pair.discordId)
+    if (!ch) return []
+    return [...ch.members.values()]
+      .filter(m => !m.user.bot && !this.ignore.has(m.id))
+      .map(m => m.displayName || m.user.username)
+  }
+
+  // Post / update / clear the "who is here from Discord" message + bot nickname.
+  _scheduleRoster(session) {
+    if (!config.bridge.voiceShowDiscordHere) return
+    if (session._rosterTimer) return
+    session._rosterTimer = setTimeout(() => {
+      session._rosterTimer = null
+      this._refreshRoster(session).catch(e => log.debug(`roster: ${e.message}`))
+    }, 2000)
+  }
+
+  async _refreshRoster(session) {
+    if (!this.active.has(session.pair.fluxerId)) return
+    const names = this._discordRoster(session.pair)
+    const key = names.join('|')
+    if (key === session._rosterKey) return
+    session._rosterKey = key
+
+    const body = names.length
+      ? `🎧 **Here from Discord:** ${names.join(', ')}`
+      : '🎧 Discord side is empty right now.'
+    try {
+      if (session._rosterMsg) {
+        await fluxerRest.editMessage(session._rosterMsg.channelId, session._rosterMsg.id, { content: body })
+      } else {
+        const chId = session._rosterChannelId || session.pair.fluxerId
+        const msg = await fluxerRest.postMessage(chId, { content: body })
+        if (msg?.id) session._rosterMsg = { channelId: chId, id: msg.id }
+      }
+    } catch (e) {
+      // Voice channel might not accept messages; fall back to the announce
+      // channel once, if one is configured.
+      if (!session._rosterMsg && !session._rosterChannelId && this._announceFluxerChannelId()) {
+        session._rosterChannelId = this._announceFluxerChannelId()
+        session._rosterKey = null
+        return this._refreshRoster(session)
+      }
+      log.debug(`roster post failed for #${session.pair.name}: ${e.message}`)
+    }
+
+    // Nickname: only when this is the single active bridge.
+    if (config.bridge.voiceRosterNick) {
+      const nick = this.active.size === 1 ? compactNick(names) : ''
+      if (nick !== this._nick) { this._nick = nick; fluxerRest.setSelfNick(nick) }
+    }
+  }
+
+  _announceFluxerChannelId() {
+    return this.announcer?.flChannelId || null
+  }
+
   async _evaluate() {
-    // 1. idle-check active sessions
+    // 1. idle-check active sessions + keep their Discord roster fresh
     for (const session of this.active.values()) {
       const { enough } = this._humans(session.pair)
       if (!enough && !session.idleTimer) {
@@ -59,6 +130,7 @@ export class VoiceBridge {
       } else if (enough && session.idleTimer) {
         clearTimeout(session.idleTimer); session.idleTimer = null
       }
+      this._scheduleRoster(session)
     }
 
     // 2. bring up any pair that has people on both sides and isn't bridged yet
@@ -137,6 +209,7 @@ export class VoiceBridge {
     this.active.set(pair.fluxerId, session)
     this._activating.delete(pair.fluxerId)
     this.announcer?.bridgeUp(pair)
+    this._refreshRoster(session).catch(() => {})
     log.info(`voice bridge up on "${pair.name}"`)
   }
 
@@ -145,12 +218,22 @@ export class VoiceBridge {
     if (!session) return
     this.active.delete(fluxerChannelId)
     if (session.idleTimer) clearTimeout(session.idleTimer)
+    if (session._rosterTimer) clearTimeout(session._rosterTimer)
     if (session.clock) clearInterval(session.clock)
+    if (session._rosterMsg) {
+      fluxerRest.deleteMessage(session._rosterMsg.channelId, session._rosterMsg.id).catch(() => {})
+    }
     try { await session.dc.destroy() } catch {}
     try { await session.fl.destroy() } catch {}
     this.pool.release(session.slot)
     this.announcer?.bridgeDown(session.pair)
     log.info(`voice bridge left "${session.pair.name}"`)
+    // Drop / recompute the nickname now that a bridge ended.
+    if (config.bridge.voiceRosterNick) {
+      const only = this.active.size === 1 ? [...this.active.values()][0] : null
+      const nick = only ? compactNick(this._discordRoster(only.pair)) : ''
+      if (nick !== this._nick) { this._nick = nick; fluxerRest.setSelfNick(nick) }
+    }
     setTimeout(() => this._evaluate().catch(() => {}), 1000)
   }
 

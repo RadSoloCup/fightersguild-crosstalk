@@ -43,6 +43,12 @@ export const fluxerRest = {
     req('DELETE', `/webhooks/${id}/${token}/messages/${messageId}`, null, { auth: false }),
 
   postMessage: (channelId, payload) => req('POST', `/channels/${channelId}/messages`, payload),
+  editMessage: (channelId, messageId, payload) => req('PATCH', `/channels/${channelId}/messages/${messageId}`, payload),
+  deleteMessage: (channelId, messageId) => req('DELETE', `/channels/${channelId}/messages/${messageId}`),
+
+  // Set the bot's own nickname in the guild. Fluxer silently ignores this when
+  // the bot lacks CHANGE_NICKNAME, so treat any failure as best-effort.
+  setSelfNick: nick => req('PATCH', `/guilds/${config.fluxer.guildId}/members/@me`, { nick: nick || null }).catch(() => null),
 }
 
 // Resolve a Fluxer avatar URL the same way the clients do.
