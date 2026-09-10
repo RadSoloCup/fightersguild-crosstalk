@@ -59,24 +59,24 @@ export class Announcer {
       entry.announced = to
       if (from === to) return
       if (!to && from) {
-        if (config.bridge.announceLeaves) this._post(`🔇 **${name}** left voice · ${platform}`)
+        if (config.bridge.announceLeaves) this._post(`**${name}** left voice · ${platform}`)
       } else if (to && !from) {
-        if (config.bridge.announceJoins) this._post(`🔊 **${name}** joined **#${resolveName(to)}** · ${platform}`)
+        if (config.bridge.announceJoins) this._post(`**${name}** joined **#${resolveName(to)}** · ${platform}`)
       } else if (to && from) {
-        if (config.bridge.announceJoins) this._post(`🔀 **${name}** moved to **#${resolveName(to)}** · ${platform}`)
+        if (config.bridge.announceJoins) this._post(`**${name}** moved to **#${resolveName(to)}** · ${platform}`)
       }
     }, DEBOUNCE_MS)
     map.set(uid, entry)
   }
 
   bridgeUp(pair) {
-    if (config.bridge.announceBridge) this._post(`🌉 Voice bridge now connecting **#${pair.name}** between Fluxer and Discord`)
+    if (config.bridge.announceBridge) this._post(`Voice bridge now connecting **#${pair.name}** between Fluxer and Discord`)
   }
   bridgeDown(pair) {
-    if (config.bridge.announceBridge) this._post(`🌉 Voice bridge left **#${pair.name}**`)
+    if (config.bridge.announceBridge) this._post(`Voice bridge left **#${pair.name}**`)
   }
   bridgeBusy(pair, max) {
-    if (config.bridge.announceBridge) this._post(`⚠️ **#${pair.name}** voice is active on both apps but all ${max} bridge${max === 1 ? '' : 's'} are busy`)
+    if (config.bridge.announceBridge) this._post(`**#${pair.name}** voice is active on both apps but all ${max} bridge${max === 1 ? '' : 's'} are busy`)
   }
 
   _post(text) {

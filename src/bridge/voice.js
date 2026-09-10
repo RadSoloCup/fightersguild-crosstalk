@@ -11,7 +11,7 @@ const FRAME_BYTES = FRAME_SAMPLES * 2
 // Fit a name list into a 32-char Fluxer nickname.
 function compactNick(names) {
   if (!names.length) return ''
-  let out = '🎧 '
+  let out = 'Discord: '
   for (let i = 0; i < names.length; i++) {
     const next = out + (i ? ', ' : '') + names[i]
     if (next.length > 28) { out += ` +${names.length - i}`; return out.slice(0, 32) }
@@ -89,8 +89,8 @@ export class VoiceBridge {
     session._rosterKey = key
 
     const body = names.length
-      ? `🎧 **Here from Discord:** ${names.join(', ')}`
-      : '🎧 Discord side is empty right now.'
+      ? `**Here from Discord:** ${names.join(', ')}`
+      : 'Discord side is empty right now.'
     try {
       if (session._rosterMsg) {
         await fluxerRest.editMessage(session._rosterMsg.channelId, session._rosterMsg.id, { content: body })
