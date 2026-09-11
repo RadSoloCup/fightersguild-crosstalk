@@ -15,6 +15,36 @@ function attachmentLines(urls) {
   return urls.length ? '\n' + urls.join('\n') : ''
 }
 
+// Render a Discord message as plain markdown for the Fluxer side: resolve
+// mentions to readable names, flatten custom emoji and timestamps, and fold in
+// any embeds (news bots, PatchBot, etc. post embed-only messages).
+function renderDiscordMessage(m) {
+  let text = m.cleanContent ?? m.content ?? ''
+  text = text
+    .replace(/<a?:(\w{2,32}):\d+>/g, ':$1:')                              // custom emoji -> :name:
+    .replace(/<t:(\d{1,15})(?::[tTdDfFR])?>/g, (_, s) =>                   // discord timestamp -> date
+      new Date(Number(s) * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' UTC')
+    .replace(/<@!?\d+>/g, '@someone')                                     // any mention cleanContent missed
+    .replace(/<@&\d+>/g, '@role')
+    .replace(/<#\d+>/g, '#channel')
+
+  const blocks = [text.trim()].filter(Boolean)
+
+  for (const e of m.embeds ?? []) {
+    const lines = []
+    if (e.author?.name) lines.push(`**${e.author.name}**`)
+    if (e.title) lines.push(e.url ? `**[${e.title}](${e.url})**` : `**${e.title}**`)
+    if (e.description) lines.push(e.description)
+    for (const f of e.fields ?? []) lines.push(`**${f.name}**\n${f.value}`)
+    if (e.footer?.text) lines.push(`_${e.footer.text}_`)
+    if (lines.length) blocks.push(lines.join('\n'))
+  }
+
+  for (const a of m.attachments?.values?.() ?? []) blocks.push(a.url)
+
+  return blocks.join('\n\n')
+}
+
 export class TextBridge {
   constructor({ fluxerGw, discord, discordGuild, pairs }) {
     this.fluxerGw = fluxerGw
@@ -121,10 +151,9 @@ export class TextBridge {
 
     const hook = this.flHook.get(pair.fluxerId)
     if (!hook) return
-    const att = [...m.attachments.values()].map(a => a.url)
-    const content = clip((m.content || '') + attachmentLines(att)).trim() || '(no content)'
+    const content = clip(renderDiscordMessage(m)).trim() || '(no content)'
     const member = m.member
-    const name = ((member?.displayName || m.author.globalName || m.author.username) + config.bridge.tagDiscord).slice(0, 80)
+    const name = ((member?.displayName || m.author.globalName || m.author.username || 'Unknown') + config.bridge.tagDiscord).slice(0, 80)
 
     const out = await fluxerRest.executeWebhook(hook.id, hook.token, {
       username: name,
@@ -141,9 +170,8 @@ export class TextBridge {
     const pair = this.dcToFl.get(m.channelId)
     const hook = pair && this.flHook.get(pair.fluxerId)
     if (!hook) return
-    const att = [...m.attachments.values()].map(a => a.url)
     await fluxerRest.editWebhookMessage(hook.id, hook.token, rec.peerKey.slice(3), {
-      content: clip((m.content || '') + attachmentLines(att)).trim() || '(no content)',
+      content: clip(renderDiscordMessage(m)).trim() || '(no content)',
     })
   }
 
