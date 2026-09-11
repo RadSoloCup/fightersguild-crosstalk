@@ -7,6 +7,7 @@ import { buildChannelMap } from './bridge/channelMap.js'
 import { TextBridge } from './bridge/text.js'
 import { VoiceBridge } from './bridge/voice.js'
 import { Announcer } from './bridge/announce.js'
+import { startStatusPush } from './status.js'
 
 const log = logger('main')
 
@@ -39,10 +40,12 @@ async function main() {
   announcer.start()
 
   // ── Text bridge ──
+  let tb = null
   if (text.length) {
-    await new TextBridge({
+    tb = new TextBridge({
       fluxerGw, discord: primary.client, discordGuild: primary.guild, pairs: text,
-    }).init()
+    })
+    await tb.init()
   } else {
     log.warn('no matching text channels, text bridge not started')
   }
@@ -55,6 +58,8 @@ async function main() {
   } else {
     log.info('voice bridge disabled or no matching voice channels')
   }
+
+  startStatusPush({ fluxerGw, pool, textBridge: tb, voiceBridge: vb })
 
   log.info('crosstalk online')
 

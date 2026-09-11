@@ -80,6 +80,10 @@ export const config = {
     announceBridge: env.ANNOUNCE_BRIDGE !== 'false', // "bridge now covering #x"
   },
 
+  // Optional: push a health snapshot to the Portal's status board.
+  statusPushUrl: env.STATUS_PUSH_URL || null,
+  statusPushToken: env.STATUS_PUSH_TOKEN || null,
+
   userAgent: env.USER_AGENT || 'fightersguild-crosstalk (+https://github.com/RadSoloCup/fightersguild-crosstalk)',
 }
 
