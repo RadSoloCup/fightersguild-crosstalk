@@ -45,6 +45,36 @@ function renderDiscordMessage(m) {
   return blocks.join('\n\n')
 }
 
+// Render Fluxer embeds (raw Discord-wire objects, e.g. the !sc/!mission bots'
+// replies) for a Discord webhook. Discord's embed builder throws on oversized
+// fields, so clip defensively instead of dropping the whole embed.
+const EMBED_LIMITS = { title: 256, description: 4096, fieldName: 256, fieldValue: 1024, footer: 2048, authorName: 256, maxFields: 25 }
+const clipTo = (s, n) => (typeof s === 'string' && s.length > n ? s.slice(0, n - 1) + '…' : s)
+
+function renderFluxerEmbeds(embeds) {
+  if (!Array.isArray(embeds) || !embeds.length) return []
+  return embeds.slice(0, 10).map(e => {
+    const out = {}
+    if (e.title) out.title = clipTo(e.title, EMBED_LIMITS.title)
+    if (e.description) out.description = clipTo(e.description, EMBED_LIMITS.description)
+    if (e.url) out.url = e.url
+    if (typeof e.color === 'number') out.color = e.color
+    if (e.timestamp) out.timestamp = e.timestamp
+    if (e.footer?.text) out.footer = { text: clipTo(e.footer.text, EMBED_LIMITS.footer), icon_url: e.footer.icon_url }
+    if (e.author?.name) out.author = { name: clipTo(e.author.name, EMBED_LIMITS.authorName), url: e.author.url, icon_url: e.author.icon_url }
+    if (e.thumbnail?.url) out.thumbnail = { url: e.thumbnail.url }
+    if (e.image?.url) out.image = { url: e.image.url }
+    if (Array.isArray(e.fields) && e.fields.length) {
+      out.fields = e.fields.slice(0, EMBED_LIMITS.maxFields).map(f => ({
+        name: clipTo(String(f.name ?? '​'), EMBED_LIMITS.fieldName) || '​',
+        value: clipTo(String(f.value ?? '​'), EMBED_LIMITS.fieldValue) || '​',
+        inline: !!f.inline,
+      }))
+    }
+    return out
+  }).filter(e => e.title || e.description || e.fields?.length || e.image || e.thumbnail)
+}
+
 export class TextBridge {
   constructor({ fluxerGw, discord, discordGuild, pairs }) {
     this.fluxerGw = fluxerGw
@@ -110,13 +140,16 @@ export class TextBridge {
     const hook = this.dcHook.get(pair.discordId)
     if (!hook) return
     const att = (d.attachments || []).map(a => a.url || a.proxy_url).filter(Boolean)
-    const content = clip((d.content || '') + attachmentLines(att)).trim() || '(no content)'
+    const embeds = renderFluxerEmbeds(d.embeds)
+    let content = clip((d.content || '') + attachmentLines(att)).trim()
+    if (!content && !embeds.length) content = '(no content)'
     const name = ((d.author?.global_name || d.author?.username || 'Unknown') + config.bridge.tagFluxer).slice(0, 80)
 
     const msg = await hook.send({
       username: name,
       avatarURL: fluxerAvatarUrl(d.author),
-      content,
+      content: content || undefined,
+      embeds,
       allowedMentions: { parse: [] },
     })
     this.ids.link(`fl:${d.id}`, `dc:${msg.id}`, { discordChannelId: pair.discordId, fluxerChannelId: pair.fluxerId })
@@ -130,7 +163,10 @@ export class TextBridge {
     const hook = pair && this.dcHook.get(pair.discordId)
     if (!hook) return
     const att = (d.attachments || []).map(a => a.url || a.proxy_url).filter(Boolean)
-    await hook.editMessage(rec.peerKey.slice(3), { content: clip((d.content || '') + attachmentLines(att)).trim() || '(no content)' })
+    const embeds = renderFluxerEmbeds(d.embeds)
+    let content = clip((d.content || '') + attachmentLines(att)).trim()
+    if (!content && !embeds.length) content = '(no content)'
+    await hook.editMessage(rec.peerKey.slice(3), { content: content || undefined, embeds })
   }
 
   async _deleteFromFluxer(d) {
